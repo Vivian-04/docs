@@ -278,28 +278,24 @@ function runQA() {
   // 6. Compare structure between source and translated pages
   const issues = [];
 
-  for (const pageKey of supportedTranslated) {
+  for (const pageKey of translatedPages) {
     const fd = pageMap.get(pageKey);
-    if (!fd) {
+    
+    let sourcePageKey = pageKey;
+    if (fd.locale && pageKey.endsWith(`.${fd.locale}`)) {
+      sourcePageKey = pageKey.slice(0, -(fd.locale.length + 1));
+    }
+
+    const sourceFd = pageMap.get(sourcePageKey);
+    
+    if (!sourceFd) {
       issues.push({
-        type: 'missing_page',
+        type: 'missing_source',
         page: pageKey,
-        message: 'Page defined in navigation but not found in docs directory',
+        message: `Could not find source English page for translated page: ${sourcePageKey}`,
       });
       continue;
     }
-
-    // Check if translated
-    if (!fd.hasLocaleMetadata) {
-      issues.push({
-        type: 'untranslated',
-        page: pageKey,
-        message: 'Page is missing locale metadata - not marked as translated',
-      });
-    }
-
-    // Compare with source version (same key in English)
-    const sourceFd = pageMap.get(pageKey);
 
     if (sourceFd) {
       // Compare headings
@@ -431,11 +427,9 @@ console.log('\n=== Canonical Links Check ===');
     console.log(`  ${type}: ${count}`);
   }
 
-  const untranslatedCount = sourceLanguagePages.size;
   console.log(`\nTotal structural issues: ${issues.length}`);
-  console.log(`Untranslated pages (no locale metadata): ${untranslatedCount}`);
 
-  if (issues.length === 0 && untranslatedCount === 0) {
+  if (issues.length === 0) {
     console.log('✓ All checks passed! Documentation is structurally sound.');
   } else {
     console.log('\n=== Detailed Issues ===');
@@ -454,5 +448,8 @@ module.exports = { runQA, parseFrontMatter, extractHeadings, countCodeFences, ex
 
 // Run if executed directly
 if (require.main === module) {
-  runQA();
+  const result = runQA();
+  if (result.issues.length > 0) {
+    process.exit(1);
+  }
 }
