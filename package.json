@@ -1,0 +1,29 @@
+{
+  "name": "@wraith-protocol/docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:snippets": "tsx scripts/check-snippets.ts",
+    "check:nav-coverage": "node scripts/check-nav-coverage.mjs",
+    "check:stellar-testnet": "tsx scripts/check-stellar-testnet-snippets.ts",
+    "generate:stellar-reference": "tsx scripts/generate-stellar-reference.ts",
+    "check:stellar-reference": "tsx scripts/generate-stellar-reference.ts --check --allow-missing",
+    "generate:playground-fixtures": "node scripts/playground/generate-fixtures.mjs",
+    "check:playground-fixtures": "node scripts/playground/generate-fixtures.mjs --check",
+    "test:playground": "playwright test --config scripts/playground/tests/playwright.config.ts",
+    "mint:validate": "mint validate",
+    "mint:broken-links": "mint broken-links",
+    "test": "npm run check:snippets && npm run check:nav-coverage"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@stellar/stellar-sdk": "^13.1.0",
+    "@wraith-protocol/sdk": "^1.4.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
