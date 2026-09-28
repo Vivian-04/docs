@@ -1,11 +1,15 @@
 /**
  * Localization QA for Wraith Protocol documentation
- * 
- * Checks translated documentation pages for:
- * - Stale links
- * - Missing sections
+ *
+ * Checks translated documentation pages (detected by a locale suffix such as
+ * `guides/stellar-quickstart.es`) for:
+ * - Missing locale metadata ("locale" front matter)
+ * - Missing canonical metadata ("canonical" front matter or <link rel="canonical">)
+ * - Stale links (compared by URL against the English source)
+ * - Missing sections (heading outline comparison)
  * - Code drift
- * - Language metadata
+ *
+ * Exits with code 1 when any issue is found.
  */
 
 const fs = require('fs');
@@ -15,32 +19,28 @@ const DOCS_DIR = path.join(__dirname);
 const MARKDOWN_EXT = ['.md', '.mdx'];
 
 const SKIP_DIRS = new Set(['.git', '.agents', 'node_modules']);
-const SKIP_FILES = new Set(['docs.json', 'CLAUDE.md', 'PR_DESCRIPTION.md']);
+const SKIP_FILES = new Set(['docs.json', 'CLAUDE.md']);
 
 function parseFrontMatter(content) {
+  const raw = content.replace(/^\uFEFF/, '');
   let attrs = {};
-  let body = content;
+  let body = raw;
 
-  const fmMatch = content.match(/^---[\s\S]*?^---/m);
+  const fmMatch = raw.match(/^---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)/m);
   if (fmMatch) {
-    const fmContent = content.substring(3, fmMatch[0].lastIndexOf('---')).trim();
     const attrsObj = {};
-    for (const line of fmContent.split('\n')) {
+    for (const line of fmMatch[1].split(/\r?\n/)) {
       const match = line.match(/^(\w+):\s*(.*)$/);
       if (match) {
         let value = match[2].trim();
         if (value === 'true') value = true;
         else if (value === 'false') value = false;
-        else if (!isNaN(value)) value = Number(value);
+        else if (value !== '' && !isNaN(value)) value = Number(value);
         attrsObj[match[1]] = value;
       }
     }
     attrs = attrsObj;
-
-    const fmEndIndex = content.indexOf('---', 3);
-    if (fmEndIndex !== -1) {
-      body = content.substring(fmEndIndex + 3).trim();
-    }
+    body = raw.substring(fmMatch[0].length).trim();
   }
 
   return { attrs, body };
@@ -48,7 +48,7 @@ function parseFrontMatter(content) {
 
 function extractHeadings(body) {
   const headings = [];
-  const lines = body.split('\n');
+  const lines = body.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const match = line.match(/^(#{1,6})\s+(.*)$/);
@@ -158,8 +158,7 @@ function getAllMDXFiles() {
         walk(fullPath);
       } else if (MARKDOWN_EXT.some(ext => entry.name.endsWith(ext))) {
         // Skip non-doc files
-        const basename = entry.name.replace(path.extname(entry.name), '');
-        if (SKIP_FILES.has(basename)) continue;
+        if (SKIP_FILES.has(entry.name)) continue;
         files.push(fullPath);
       }
     }
@@ -177,6 +176,31 @@ function getPageKey(filePath) {
 
 function hasLocaleMetadata(attrs) {
   return attrs.locale !== undefined && attrs.locale !== null;
+}
+
+// A page whose filename carries a locale suffix (e.g. guides/stellar-quickstart.es)
+// is a translation. Detection is filename-based so a translated page that forgets
+// its "locale" front matter is still counted and reported as a failure.
+function parseTranslatedKey(pageKey) {
+  const base = pageKey.slice(pageKey.lastIndexOf('/') + 1);
+  const match = base.match(/^(.+)\.([a-z]{2})$/);
+  if (!match) return null;
+  return {
+    locale: match[2],
+    sourcePageKey: pageKey.slice(0, -(match[2].length + 1)),
+  };
+}
+
+// Canonical metadata is either a "canonical" front matter field or a
+// <link rel="canonical"> tag in the page body. Returns the URL, or null.
+function getCanonicalMetadata(attrs, body) {
+  if (attrs.canonical !== undefined && attrs.canonical !== null && attrs.canonical !== '') {
+    return String(attrs.canonical).trim();
+  }
+  const tag = body.match(/<link\b[^>]*\brel=["'][^"']*canonical[^"']*["'][^>]*>/i);
+  if (!tag) return null;
+  const href = tag[0].match(/\bhref=["']([^"']+)["']/i);
+  return href ? href[1] : null;
 }
 
 function runQA() {
@@ -212,8 +236,10 @@ function runQA() {
       const content = fs.readFileSync(filePath, 'utf-8');
       const parsed = parseFrontMatter(content);
       const pageKey = getPageKey(filePath);
-      const hasLocale = hasLocaleMetadata(parsed.attrs);
-      const locale = hasLocale ? parsed.attrs.locale : null;
+      const translation = parseTranslatedKey(pageKey);
+      const declaredLocale = hasLocaleMetadata(parsed.attrs)
+        ? String(parsed.attrs.locale)
+        : null;
 
       const headings = extractHeadings(parsed.body);
       const codeFenceCount = countCodeFences(parsed.body);
@@ -228,8 +254,11 @@ function runQA() {
         pageKey,
         title: parsed.attrs.title || 'Untitled',
         description: parsed.attrs.description || '',
-        locale,
-        hasLocaleMetadata: hasLocale,
+        isTranslated: translation !== null,
+        expectedLocale: translation ? translation.locale : null,
+        sourcePageKey: translation ? translation.sourcePageKey : null,
+        declaredLocale,
+        canonical: getCanonicalMetadata(parsed.attrs, parsed.body),
         headings,
         codeFenceCount,
         links: classifiedLinks,
@@ -251,7 +280,7 @@ function runQA() {
   const sourceLanguagePages = new Set();
 
   for (const [key, fd] of pageMap) {
-    if (fd.hasLocaleMetadata) {
+    if (fd.isTranslated) {
       translatedPages.add(key);
     } else {
       sourceLanguagePages.add(key);
@@ -280,14 +309,10 @@ function runQA() {
 
   for (const pageKey of translatedPages) {
     const fd = pageMap.get(pageKey);
-    
-    let sourcePageKey = pageKey;
-    if (fd.locale && pageKey.endsWith(`.${fd.locale}`)) {
-      sourcePageKey = pageKey.slice(0, -(fd.locale.length + 1));
-    }
+    const sourcePageKey = fd.sourcePageKey;
 
     const sourceFd = pageMap.get(sourcePageKey);
-    
+
     if (!sourceFd) {
       issues.push({
         type: 'missing_source',
@@ -298,33 +323,20 @@ function runQA() {
     }
 
     if (sourceFd) {
-      // Compare headings
-      const sourceHeadingTexts = sourceFd.headings.map(h => h.text);
-      const translatedHeadingTexts = fd.headings.map(h => h.text);
+      // Compare heading structure. Heading text is translated, so only the
+      // outline (count and nesting levels) is compared — a section added to or
+      // dropped from the translation changes the outline.
+      const sourceLevels = sourceFd.headings.map(h => h.level);
+      const translatedLevels = fd.headings.map(h => h.level);
 
-      const missingInTranslation = sourceHeadingTexts.filter(h => !translatedHeadingTexts.includes(h));
-      const extraInTranslation = translatedHeadingTexts.filter(h => !sourceHeadingTexts.includes(h));
-
-      if (missingInTranslation.length > 0) {
+      if (sourceLevels.join(',') !== translatedLevels.join(',')) {
         issues.push({
           type: 'heading_drift',
           page: pageKey,
-          message: `Missing headings in translation: ${missingInTranslation.join(', ')}`,
+          message: `Heading structure mismatch: source=${sourceLevels.join(',')} vs translation=${translatedLevels.join(',')}`,
           details: {
-            sourceHeadings: sourceHeadingTexts,
-            translatedHeadings: translatedHeadingTexts,
-          },
-        });
-      }
-
-      if (extraInTranslation.length > 0) {
-        issues.push({
-          type: 'heading_drift',
-          page: pageKey,
-          message: `Extra headings in translation not in source: ${extraInTranslation.join(', ')}`,
-          details: {
-            sourceHeadings: sourceHeadingTexts,
-            translatedHeadings: translatedHeadingTexts,
+            sourceHeadings: sourceFd.headings.map(h => `${h.level}: ${h.text}`),
+            translatedHeadings: fd.headings.map(h => `${h.level}: ${h.text}`),
           },
         });
       }
@@ -342,76 +354,87 @@ function runQA() {
         });
       }
 
-      // Compare link structure
-      const sourceLinks = sourceFd.links.map(l => ({ ...l, type: classifyLink(l.url) }));
-      const translatedLinks = fd.links.map(l => ({ ...l, type: classifyLink(l.url) }));
+      // Compare link targets. Link text is translated, so URLs are compared.
+      const sourceUrls = new Set(sourceFd.links.map(l => l.url));
+      const translatedUrls = new Set(fd.links.map(l => l.url));
 
       // Links in translation not in source
-      for (const translatedLink of translatedLinks) {
-        const matchingSourceLink = sourceLinks.find(
-          sl => sl.url === translatedLink.url && sl.text === translatedLink.text
-        );
+      for (const translatedLink of fd.links) {
+        if (sourceUrls.has(translatedLink.url)) continue;
 
-        if (!matchingSourceLink) {
-          if (translatedLink.type === 'external') {
-            issues.push({
-              type: 'link_structural',
-              page: pageKey,
-              message: `Link in translation not in source: ${translatedLink.text} (${translatedLink.url})`,
-              details: { type: translatedLink.type },
-            });
-          } else {
-            issues.push({
-              type: 'link_structural',
-              page: pageKey,
-              message: `Internal link in translation not in source: ${translatedLink.text} (${translatedLink.url})`,
-              details: { type: translatedLink.type },
-            });
-          }
-        }
-      }
-
-      // Links in source missing from translation
-      for (const sourceLink of sourceLinks) {
-        const hasMatching = translatedLinks.some(
-          tl => tl.url === sourceLink.url && tl.text === sourceLink.text
-        );
-        if (!hasMatching && sourceLink.type === 'internal') {
+        if (translatedLink.type === 'external') {
           issues.push({
-            type: 'link_missing',
+            type: 'link_structural',
             page: pageKey,
-            message: `Internal link missing from translation: ${sourceLink.text} (${sourceLink.url})`,
+            message: `Link in translation not in source: ${translatedLink.text} (${translatedLink.url})`,
+            details: { type: translatedLink.type },
+          });
+        } else {
+          issues.push({
+            type: 'link_structural',
+            page: pageKey,
+            message: `Internal link in translation not in source: ${translatedLink.text} (${translatedLink.url})`,
+            details: { type: translatedLink.type },
           });
         }
       }
-    }
-  }
 
-  // 7. Check locale metadata
-  console.log('\n=== Locale Metadata Check ===');
-  for (const [key, fd] of pageMap) {
-    if (fd.hasLocaleMetadata) {
-      console.log(`  ✓ ${key}: locale="${fd.locale}"`);
-    } else {
-      console.log(`  ✗ ${key}: missing locale metadata`);
-    }
-  }
+      // Internal links in source missing from translation
+      for (const sourceLink of sourceFd.links) {
+        if (sourceLink.type !== 'internal') continue;
+        if (translatedUrls.has(sourceLink.url)) continue;
 
-// 8. Check canonical links
-console.log('\n=== Canonical Links Check ===');
-  for (const fd of fileData) {
-    // Check for canonical link by looking for <link> tag with rel=canonical
-    const hasCanonicalLink = /<link\s/i.test(fd.rawBody) &&
-      (/rel=["'][^"']*canonical[^"']*["']/i.test(fd.rawBody));
-    const canonicalUrlMatch = fd.rawBody.match(/href=["']([^"']+)["']/i);
-    if (hasCanonicalLink) {
-      if (canonicalUrlMatch) {
-        console.log(`  ✓ ${fd.pageKey}: canonical URL="${canonicalUrlMatch[1]}"`);
-      } else {
-        console.log(`  ✓ ${fd.pageKey}: canonical link present`);
+        issues.push({
+          type: 'link_missing',
+          page: pageKey,
+          message: `Internal link missing from translation: ${sourceLink.text} (${sourceLink.url})`,
+        });
       }
+    }
+  }
+
+  // 7. Check locale metadata on translated pages
+  console.log('\n=== Locale Metadata Check ===');
+  if (translatedPages.size === 0) {
+    console.log('  (no translated pages found)');
+  }
+  for (const pageKey of translatedPages) {
+    const fd = pageMap.get(pageKey);
+    if (!fd.declaredLocale) {
+      issues.push({
+        type: 'missing_locale',
+        page: pageKey,
+        message: `Missing locale metadata: add "locale: ${fd.expectedLocale}" to the front matter`,
+      });
+      console.log(`  ✗ ${pageKey}: missing locale metadata`);
+    } else if (fd.declaredLocale !== fd.expectedLocale) {
+      issues.push({
+        type: 'locale_mismatch',
+        page: pageKey,
+        message: `Locale metadata "${fd.declaredLocale}" does not match the file suffix ".${fd.expectedLocale}"`,
+      });
+      console.log(`  ✗ ${pageKey}: locale="${fd.declaredLocale}" does not match file suffix ".${fd.expectedLocale}"`);
     } else {
-      console.log(`  ✗ ${fd.pageKey}: missing canonical link`);
+      console.log(`  ✓ ${pageKey}: locale="${fd.declaredLocale}"`);
+    }
+  }
+
+  // 8. Check canonical metadata on translated pages
+  console.log('\n=== Canonical Metadata Check ===');
+  if (translatedPages.size === 0) {
+    console.log('  (no translated pages found)');
+  }
+  for (const pageKey of translatedPages) {
+    const fd = pageMap.get(pageKey);
+    if (!fd.canonical) {
+      issues.push({
+        type: 'missing_canonical',
+        page: pageKey,
+        message: 'Missing canonical metadata: add "canonical: /<source page path>" to the front matter or a <link rel="canonical"> tag',
+      });
+      console.log(`  ✗ ${pageKey}: missing canonical metadata`);
+    } else {
+      console.log(`  ✓ ${pageKey}: canonical="${fd.canonical}"`);
     }
   }
 
@@ -427,7 +450,7 @@ console.log('\n=== Canonical Links Check ===');
     console.log(`  ${type}: ${count}`);
   }
 
-  console.log(`\nTotal structural issues: ${issues.length}`);
+  console.log(`\nTotal issues: ${issues.length}`);
 
   if (issues.length === 0) {
     console.log('✓ All checks passed! Documentation is structurally sound.');
@@ -444,7 +467,17 @@ console.log('\n=== Canonical Links Check ===');
   return { issues, fileData, pageMap, translatedPages, sourceLanguagePages, supportedTranslated };
 }
 
-module.exports = { runQA, parseFrontMatter, extractHeadings, countCodeFences, extractLinks, classifyLink, hasLocaleMetadata };
+module.exports = {
+  runQA,
+  parseFrontMatter,
+  extractHeadings,
+  countCodeFences,
+  extractLinks,
+  classifyLink,
+  hasLocaleMetadata,
+  parseTranslatedKey,
+  getCanonicalMetadata,
+};
 
 // Run if executed directly
 if (require.main === module) {
