@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- CSP: nothing from external origins. Scripts and the fixture file are
+       same-origin; everything else is inline. Keep default-src 'none'. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;" />
+  <title>Wraith Stealth Playground</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #181c27;
+      --border:    #2a2f3d;
+      --accent:    #7c6af7;
+      --accent-lo: #7c6af720;
+      --green:     #34d399;
+      --green-lo:  #34d39918;
+      --red:       #f87171;
+      --red-lo:    #f8717118;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --mono:      'Fira Mono', 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 20px 16px 32px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 20px;
+    }
+
+    /* ── Stepper ─────────────────────────────────────────── */
+    .stepper {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 22px;
+      flex-wrap: wrap;
+    }
+    .stepper .step {
+      flex: 1;
+      min-width: 110px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      text-align: left;
+    }
+    .stepper .step:hover { border-color: var(--accent); color: var(--text); }
+    .stepper .step.active {
+      background: var(--accent-lo);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--border);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .stepper .step.active .step-num { background: var(--accent); color: #fff; }
+
+    /* ── Panels ──────────────────────────────────────────── */
+    .panel h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -0.01em;
+      margin-bottom: 4px;
+    }
+    .panel-desc {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    label span {
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .field { margin-bottom: 14px; }
+
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--muted); }
+    select { color-scheme: dark; }
+
+    .row { display: flex; gap: 10px; }
+    .row .field { flex: 1; }
+    .btn-row { display: flex; gap: 10px; margin-top: 4px; }
+
+    button {
+      padding: 9px 14px;
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+      flex: 1;
+    }
+    button:hover { opacity: .88; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    button.ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      flex: 0 0 auto;
+    }
+    button.ghost:hover { border-color: var(--accent); }
+    button.small { padding: 5px 10px; font-size: 11px; margin-top: 8px; }
+
+    .hint {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .hint a {
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .hint a:hover { text-decoration: underline; }
+    .hint code {
+      font-family: var(--mono);
+      font-size: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0 4px;
+    }
+
+    #bootError { margin-bottom: 14px; }
+
+    /* ── Status bar ──────────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      margin: 16px 0 10px;
+    }
+    .status-bar .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-scanning { background: var(--accent); animation: pulse 1s infinite; }
+    .dot-done     { background: var(--green); }
+    .dot-err      { background: var(--red); }
+    @keyframes pulse {
+      0%,100% { opacity:1; } 50% { opacity:.35; }
+    }
+
+    /* ── Cards / results ─────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .card-accent {
+      background: var(--green-lo);
+      border-color: var(--green);
+    }
+    .card code {
+      font-family: var(--mono);
+      font-size: 11px;
+      word-break: break-all;
+    }
+    code.wrap { white-space: normal; }
+
+    .match-card {
+      background: var(--green-lo);
+      border: 1px solid var(--green);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .match-card .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+    .match-card .tag::before {
+      content: '';
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .kv-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 6px;
+    }
+    .kv-row:last-child { margin-bottom: 0; }
+    .kv-row .k {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+    }
+    .kv-row .v {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .kv-row .v code { font-size: 11px; }
+
+    .no-match {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 10px;
+    }
+
+    /* ── Fixture table + code blocks ─────────────────────── */
+    .fixture-section { margin-top: 14px; }
+    .fixture-section summary {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      padding: 6px 0;
+    }
+    .fixture-section summary:hover { color: var(--text); }
+    .fixture-table { margin-top: 8px; overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    th {
+      text-align: left;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-size: 10px;
+      color: var(--muted);
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+
+    .badge-yours {
+      display: inline-block;
+      background: var(--green-lo);
+      color: var(--green);
+      border: 1px solid var(--green);
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      letter-spacing: .05em;
+    }
+    .badge-other {
+      display: inline-block;
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 9px;
+      padding: 1px 5px;
+    }
+
+    .code-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.5;
+      color: var(--text);
+      overflow-x: auto;
+      margin-top: 8px;
+      white-space: pre;
+    }
+
+    .footer-note {
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .privacy-note a { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<h1>Wraith Stealth Playground</h1>
+<p class="subtitle">Run the full stealth payment flow client-side — no wallet, no network calls, nothing leaves your browser.</p>
+
+<div id="bootError" hidden></div>
+
+<nav class="stepper" aria-label="Stealth payment steps">
+  <button class="step" id="stepper-derive" data-step="derive">
+    <span class="step-num">1</span><span class="step-label">Derive</span>
+  </button>
+  <button class="step" id="stepper-send" data-step="send">
+    <span class="step-num">2</span><span class="step-label">Send</span>
+  </button>
+  <button class="step" id="stepper-scan" data-step="scan">
+    <span class="step-num">3</span><span class="step-label">Scan</span>
+  </button>
+  <button class="step" id="stepper-withdraw" data-step="withdraw">
+    <span class="step-num">4</span><span class="step-label">Withdraw</span>
+  </button>
+</nav>
+
+<main>
+  <!-- ── Step 1: Derive ─────────────────────────────────── -->
+  <section class="panel" id="panel-derive">
+    <h2>1 · Derive stealth keys</h2>
+    <p class="panel-desc">
+      A wallet signs the canonical Wraith message; the 64-byte signature is split into two
+      domain-separated seeds, and each seed expands into a key pair. The public halves form
+      your stealth meta-address — share it to receive payments.
+    </p>
+
+    <div class="field">
+      <label>Wallet signature <span>(128 hex chars — the demo signature is pre-filled)</span></label>
+      <input type="text" id="sigInput" spellcheck="false" autocomplete="off"
+             placeholder="64-byte ed25519 signature as hex" />
+    </div>
+
+    <div class="btn-row">
+      <button id="deriveBtn">Derive stealth keys</button>
+      <button class="ghost" id="reset-derive">Reset</button>
+    </div>
+    <div id="deriveResults"></div>
+    <p class="hint"><a id="permalink-derive">Copy permalink</a> — share the current step + inputs.</p>
+  </section>
+
+  <!-- ── Step 2: Send ───────────────────────────────────── -->
+  <section class="panel" id="panel-send" hidden>
+    <h2>2 · Send a stealth payment</h2>
+    <p class="panel-desc">
+      A fresh one-time ephemeral keypair is generated per payment. ECDH with the recipient's
+      viewing key derives the one-time stealth address, and the <code>stealth-announcer</code>
+      contract emits an announcement event — simulated here as a Horizon event.
+    </p>
+
+    <div class="field">
+      <label>Recipient meta-address <span>(st:xlm:…)</span></label>
+      <input type="text" id="sendMeta" spellcheck="false" autocomplete="off"
+             placeholder="st:xlm:&lt;spending pubkey hex&gt;&lt;viewing pubkey hex&gt;" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Asset</label>
+        <select id="sendAsset">
+          <option value="XLM">XLM</option>
+          <option value="USDC">USDC</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Amount</label>
+        <input type="number" id="sendAmount" min="0" step="any" placeholder="10.0" />
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button id="constructBtn">Construct announcement</button>
+      <button class="ghost" id="reset-send">Reset</button>
+    </div>
+    <div id="sendResults"></div>
+    <p class="hint"><a id="permalink-send">Copy permalink</a> — share the current step + inputs.</p>
+  </section>
+
+  <!-- ── Step 3: Scan ───────────────────────────────────── -->
+  <section class="panel" id="panel-scan" hidden>
+    <h2>3 · Scan for incoming payments</h2>
+    <p class="panel-desc">
+      Announcements are filtered by view tag (a single byte rejects ~255/256 non-matches), then
+      matched with ECDH + Ed25519 point addition. The batch below is parsed from the fixture
+      Horizon events, plus anything you constructed in the Send step.
+    </p>
+
+    <div class="field">
+      <label>Stealth meta-address <span>(st:xlm:…)</span></label>
+      <input type="text" id="scanMeta" spellcheck="false" autocomplete="off"
+             placeholder="st:xlm:&lt;64-char spending pubkey hex&gt;&lt;64-char viewing pubkey hex&gt;" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Viewing key <span>(32-byte hex seed)</span></label>
+        <input type="text" id="scanVk" placeholder="64 hex chars" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Spending scalar <span>(decimal bigint)</span></label>
+        <input type="text" id="scanScalar" placeholder="decimal integer" spellcheck="false" autocomplete="off" />
+      </div>
+    </div>
+
+    <p class="hint">No keys handy? <a id="loadFixture">Load the demo keys</a> that match the fixture announcements.</p>
+
+    <div class="btn-row">
+      <button id="scanBtn">Scan announcements</button>
+      <button class="ghost" id="reset-scan">Reset</button>
+    </div>
+    <div id="scanResults"></div>
+
+    <details class="fixture-section">
+      <summary>Announcement batch</summary>
+      <div class="fixture-table">
+        <table id="fixtureTable"></table>
+      </div>
+    </details>
+    <p class="hint"><a id="permalink-scan">Copy permalink</a> — share the current step + inputs.</p>
+  </section>
+
+  <!-- ── Step 4: Withdraw ───────────────────────────────── -->
+  <section class="panel" id="panel-withdraw" hidden>
+    <h2>4 · Withdraw to your wallet</h2>
+    <p class="panel-desc">
+      Only the recipient can spend from a stealth address: the stealth private scalar
+      (<code>spendingScalar + hashToScalar(sharedSecret) mod L</code>) signs the withdrawal.
+      This step simulates the transaction using the demo keys.
+    </p>
+
+    <div class="field">
+      <label>Destination wallet <span>(G…)</span></label>
+      <input type="text" id="wdDest" spellcheck="false" autocomplete="off"
+             placeholder="G… your Stellar wallet" />
+    </div>
+
+    <div class="btn-row">
+      <button class="ghost" id="reset-withdraw">Reset</button>
+    </div>
+    <div id="withdrawResults"></div>
+    <p class="hint"><a id="permalink-withdraw">Copy permalink</a> — share the current step + inputs.</p>
+  </section>
+</main>
+
+<footer class="footer-note">
+  Everything runs client-side against canned fixtures — no wallet, no network calls, no third-party scripts.
+  Keys here are deterministic demo values, never real.
+</footer>
+
+<script src="scanner.js"></script>
+<script src="playground.js"></script>
+</body>
+</html>

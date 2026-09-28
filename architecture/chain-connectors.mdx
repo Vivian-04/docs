@@ -9,7 +9,7 @@ Chain connectors are the abstraction layer between Wraith's chain-agnostic agent
 
 Every chain connector implements `ChainConnector`:
 
-```typescript
+```tsx
 interface ChainConnector {
   readonly chain: string;
   readonly nativeAsset: string;
@@ -347,7 +347,7 @@ class ChainRegistry {
 
 ### Usage in Agent Service
 
-```typescript
+```typescript no-check
 async sendPayment(agentId: string, recipient: string, amount: string) {
   const agent = await this.db.agents.findOneBy({ id: agentId });
   const connector = this.chainRegistry.get(agent.chain);
